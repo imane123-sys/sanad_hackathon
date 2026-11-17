@@ -1,0 +1,786 @@
+// Prisma Schema for SANAD Platform
+// Database: MySQL
+// Cahier des Charges Version 2.0 Compliance
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// ==========================================
+// ENUMS
+// ==========================================
+
+enum Role {
+  USER
+  ADMIN
+  LAWYER
+  PSYCHOLOGIST
+  ASSOCIATION
+  HELP_CENTER
+  COUNSELOR
+  ASSOCIATION_REP
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+  PENDING_VERIFICATION
+}
+
+enum SessionStatus {
+  ACTIVE
+  REVOKED
+  EXPIRED
+}
+
+enum EvidenceStatus {
+  STORED
+  ARCHIVED
+  DELETED
+}
+
+enum EvidenceAction {
+  VIEW
+  DOWNLOAD
+  SHARE
+  DELETE
+  VERIFY_HASH
+}
+
+enum LogResult {
+  SUCCESS
+  DENIED
+  ERROR
+}
+
+enum SharePermissionType {
+  READ_ONLY
+  DOWNLOAD
+}
+
+enum ShareStatus {
+  ACTIVE
+  REVOKED
+  EXPIRED
+}
+
+enum AssistanceType {
+  LEGAL
+  PSYCHOLOGICAL
+  SOCIAL
+  EMERGENCY
+  SHELTER
+  OTHER
+}
+
+enum AssistanceStatus {
+  EN_ATTENTE
+  EN_COURS
+  ACCEPTEE
+  REFUSEE
+  TERMINEE
+  ANNULEE
+}
+
+enum ProfessionalType {
+  LAWYER
+  PSYCHOLOGIST
+}
+
+enum VerificationStatus {
+  PENDING
+  VERIFIED
+  REJECTED
+}
+
+enum VerificationDocType {
+  BAR_CARD
+  DIPLOMA
+  PROFESSIONAL_LICENSE
+  NATIONAL_ID
+  OTHER
+}
+
+enum ServiceType {
+  CONSULTATION
+  LEGAL_REPRESENTATION
+  PSYCHOLOGICAL_SUPPORT
+  EMERGENCY_SUPPORT
+  WORKSHOP
+}
+
+enum EmergencyServiceType {
+  POLICE
+  GENDARMERIE
+  MEDICAL_SAMU
+  NATIONAL_HELPLINE
+  WOMEN_SHELTER
+  LEGAL_AID
+}
+
+enum AppointmentMode {
+  IN_PERSON
+  REMOTE
+}
+
+enum AppointmentStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+  COMPLETED
+  RESCHEDULED
+}
+
+enum MessageSender {
+  USER
+  ASSISTANT
+  SYSTEM
+}
+
+enum LegalCategory {
+  FAMILY_LAW
+  CRIMINAL_LAW_VIOLENCE
+  LABOR_DISCRIMINATION
+  HUMAN_RIGHTS
+  LEGAL_PROCEDURES
+  CIVIL_PROTECTION
+}
+
+enum ConsentType {
+  TERMS_OF_SERVICE
+  PRIVACY_POLICY_09_08
+  AI_SITUATION_ANALYSIS
+  AI_RESULT_STORAGE
+  EVIDENCE_VAULT_STORAGE
+  PROFESSIONAL_DATA_SHARING
+}
+
+enum NotificationType {
+  SECURITY
+  SESSION
+  ASSISTANCE_REQUEST
+  APPOINTMENT
+  SYSTEM
+}
+
+enum NotificationChannel {
+  IN_APP
+  EMAIL
+  SMS
+}
+
+enum ReportType {
+  VIOLENCE
+  HARASSMENT
+  DISCRIMINATION
+  FRAUD
+  TECHNICAL_ISSUE
+  OTHER
+}
+
+enum ReportStatus {
+  PENDING
+  UNDER_REVIEW
+  RESOLVED
+  DISMISSED
+}
+
+enum InteractionStatus {
+  SUCCESS
+  ERROR
+  PENDING
+}
+
+// ==========================================
+// 9.1 USER & 9.2 USER PROFILE
+// ==========================================
+
+model User {
+  id                String            @id @default(uuid())
+  email             String            @unique
+  passwordHash      String?
+  firstName         String?
+  lastName          String?
+  fullName          String?
+  phone             String?
+  role              Role              @default(USER)
+  status            UserStatus        @default(ACTIVE)
+  preferredLanguage String            @default("ar")
+  isActive          Boolean           @default(true)
+  isEmailVerified   Boolean           @default(false)
+  emailVerificationToken String?      @db.VarChar(255)
+  passwordResetToken String?          @db.VarChar(255)
+  passwordResetExpires DateTime?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  // 1-to-1 Profile
+  profile           UserProfile?
+
+  // Sessions & Devices (9.3)
+  sessions          UserSession[]
+
+  // Evidence Vault (9.4, 9.5, 9.6, 9.7)
+  evidenceFolders   EvidenceFolder[]
+  evidences         Evidence[]
+  evidenceAccessLogs EvidenceAccessLog[]
+  sharedPermissionsReceived EvidenceSharePermission[] @relation("SharedEvidenceRecipient")
+
+  // Assistance Requests (9.8, 9.9)
+  assistanceRequests AssistanceRequest[] @relation("UserAssistanceRequests")
+  statusHistoryActions AssistanceStatusHistory[] @relation("StatusChangeActor")
+
+  // Professional Profile (9.10)
+  professionalProfile Professional?
+  verificationsReviewed ProfessionalVerification[] @relation("AdminVerifications")
+
+  // Appointments (9.16)
+  appointments      Appointment[]     @relation("UserAppointments")
+
+  // AI & Conversations (9.17, AiInteraction)
+  conversations     Conversation[]
+  aiInteractions    AiInteraction[]
+
+  // Consents (9.20)
+  consents          Consent[]
+
+  // Notifications (9.22)
+  notifications     Notification[]
+
+  // Audit & Reports (9.23, 9.24)
+  auditLogs         AuditLog[]        @relation("AuditActor")
+  reportsCreated    Report[]          @relation("ReportAuthor")
+  reportsReviewed   Report[]          @relation("ReportReviewer")
+
+  // Situation Analysis Results (9.25)
+  analysisResults   AnalysisResult[]
+
+  @@map("users")
+}
+
+model UserProfile {
+  id                String            @id @default(uuid())
+  userId            String            @unique
+  phone             String?
+  city              String?
+  preferredLanguage String            @default("ar")
+  preferences       Json?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  user              User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_profiles")
+}
+
+// ==========================================
+// 9.3 USER SESSION & DEVICES
+// ==========================================
+
+model UserSession {
+  id                String            @id @default(uuid())
+  userId            String
+  tokenHash         String            @db.VarChar(255)
+  deviceInfo        String?           @db.Text
+  ipAddress         String?           @db.VarChar(45)
+  status            SessionStatus     @default(ACTIVE)
+  lastActivityAt    DateTime          @default(now())
+  expiresAt         DateTime
+  revokedAt         DateTime?
+  createdAt         DateTime          @default(now())
+
+  user              User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([tokenHash])
+  @@map("user_sessions")
+}
+
+// ==========================================
+// 9.4, 9.5, 9.6, 9.7 SECURE EVIDENCE VAULT
+// ==========================================
+
+model EvidenceFolder {
+  id                String            @id @default(uuid())
+  userId            String
+  name              String
+  description       String?           @db.Text
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  user              User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  evidences         Evidence[]
+
+  @@index([userId])
+  @@map("evidence_folders")
+}
+
+model Evidence {
+  id                String            @id @default(uuid())
+  folderId          String?
+  userId            String
+  fileName          String
+  fileUrl           String            @db.VarChar(512)
+  mimeType          String            @db.VarChar(128)
+  size              BigInt
+  sha256            String            @db.VarChar(64)
+  description       String?           @db.Text
+  status            EvidenceStatus    @default(STORED)
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  folder            EvidenceFolder?   @relation(fields: [folderId], references: [id], onDelete: SetNull)
+  user              User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessLogs        EvidenceAccessLog[]
+  sharePermissions  EvidenceSharePermission[]
+
+  @@index([userId])
+  @@index([folderId])
+  @@index([sha256])
+  @@map("evidences")
+}
+
+model EvidenceAccessLog {
+  id                String            @id @default(uuid())
+  evidenceId        String
+  userId            String
+  action            EvidenceAction
+  ipAddress         String?           @db.VarChar(45)
+  result            LogResult         @default(SUCCESS)
+  metadata          Json?
+  createdAt         DateTime          @default(now())
+
+  evidence          Evidence          @relation(fields: [evidenceId], references: [id], onDelete: Cascade)
+  user              User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([evidenceId])
+  @@index([userId])
+  @@index([createdAt])
+  @@map("evidence_access_logs")
+}
+
+model EvidenceSharePermission {
+  id                String            @id @default(uuid())
+  evidenceId        String
+  recipientId       String
+  permission        SharePermissionType @default(READ_ONLY)
+  status            ShareStatus       @default(ACTIVE)
+  validFrom         DateTime          @default(now())
+  validUntil        DateTime
+  revokedAt         DateTime?
+  createdAt         DateTime          @default(now())
+
+  evidence          Evidence          @relation(fields: [evidenceId], references: [id], onDelete: Cascade)
+  recipient         User              @relation("SharedEvidenceRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
+
+  @@index([evidenceId])
+  @@index([recipientId])
+  @@map("evidence_share_permissions")
+}
+
+// ==========================================
+// 9.8 & 9.9 ASSISTANCE REQUESTS & HISTORY
+// ==========================================
+
+model AssistanceRequest {
+  id                String            @id @default(uuid())
+  userId            String
+  professionalId    String?
+  organizationId    String?
+  typeAssistance    AssistanceType
+  description       String?           @db.Text
+  status            AssistanceStatus  @default(EN_ATTENTE)
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  user              User              @relation("UserAssistanceRequests", fields: [userId], references: [id], onDelete: Cascade)
+  professional      Professional?     @relation(fields: [professionalId], references: [id], onDelete: SetNull)
+  statusHistory     AssistanceStatusHistory[]
+
+  @@index([userId])
+  @@index([professionalId])
+  @@index([status])
+  @@map("assistance_requests")
+}
+
+model AssistanceStatusHistory {
+  id                  String            @id @default(uuid())
+  assistanceRequestId String
+  oldStatus           AssistanceStatus?
+  newStatus           AssistanceStatus
+  changedById         String
+  comment             String?           @db.Text
+  changedAt           DateTime          @default(now())
+
+  assistanceRequest   AssistanceRequest @relation(fields: [assistanceRequestId], references: [id], onDelete: Cascade)
+  changedBy           User              @relation("StatusChangeActor", fields: [changedById], references: [id], onDelete: Cascade)
+
+  @@index([assistanceRequestId])
+  @@index([changedById])
+  @@map("assistance_status_history")
+}
+
+// ==========================================
+// 9.10, 9.11, 9.12 PROFESSIONALS & VERIFICATION
+// ==========================================
+
+model Professional {
+  id                  String            @id @default(uuid())
+  userId              String            @unique
+  specialty           String
+  bio                 String?           @db.Text
+  city                String
+  professionalType    ProfessionalType
+  verificationStatus  VerificationStatus @default(PENDING)
+  isVolunteer         Boolean           @default(false)
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+
+  user                User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  verifications       ProfessionalVerification[]
+  services            ProfessionalService[]
+  assistanceRequests  AssistanceRequest[]
+  appointments        Appointment[]
+
+  @@index([city])
+  @@index([specialty])
+  @@index([verificationStatus])
+  @@map("professionals")
+}
+
+model ProfessionalVerification {
+  id                  String            @id @default(uuid())
+  professionalId      String
+  documentType        VerificationDocType
+  documentUrl         String            @db.VarChar(512)
+  status              VerificationStatus @default(PENDING)
+  verifiedById        String?
+  verifiedAt          DateTime?
+  comment             String?           @db.Text
+  createdAt           DateTime          @default(now())
+
+  professional        Professional      @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+  verifiedBy          User?             @relation("AdminVerifications", fields: [verifiedById], references: [id], onDelete: SetNull)
+
+  @@index([professionalId])
+  @@index([verifiedById])
+  @@map("professional_verifications")
+}
+
+model ProfessionalService {
+  id                  String            @id @default(uuid())
+  professionalId      String
+  name                String
+  description         String?           @db.Text
+  serviceType         ServiceType
+  price               Decimal           @default(0.00) @db.Decimal(10, 2)
+  currency            String            @default("MAD") @db.VarChar(10)
+  isActive            Boolean           @default(true)
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+
+  professional        Professional      @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+
+  @@index([professionalId])
+  @@map("professional_services")
+}
+
+// ==========================================
+// 9.13 ASSOCIATIONS & 9.14 HELP CENTERS
+// ==========================================
+
+model Association {
+  id                  String            @id @default(uuid())
+  name                String
+  description         String            @db.Text
+  address             String?           @db.VarChar(255)
+  city                String
+  phone               String?           @db.VarChar(50)
+  email               String?           @db.VarChar(128)
+  services            Json?
+  isFree              Boolean           @default(true)
+  isActive            Boolean           @default(true)
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+
+  @@index([city])
+  @@map("associations")
+}
+
+model HelpCenter {
+  id                  String            @id @default(uuid())
+  name                String
+  address             String            @db.VarChar(255)
+  city                String
+  latitude            Float?
+  longitude           Float?
+  phone               String            @db.VarChar(50)
+  openingHours        String?           @db.VarChar(255)
+  services            Json?
+  isFree              Boolean           @default(true)
+  receptionConditions String?           @db.Text
+  isVerified          Boolean           @default(true)
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+
+  @@index([city])
+  @@map("help_centers")
+}
+
+// ==========================================
+// 9.15 EMERGENCY RESOURCES
+// ==========================================
+
+model EmergencyResource {
+  id                  String                @id @default(uuid())
+  name                String
+  serviceType         EmergencyServiceType
+  phone               String                @db.VarChar(50)
+  address             String?               @db.VarChar(255)
+  city                String?               @db.VarChar(100)
+  description         String?               @db.Text
+  availability        String                @default("24/7") @db.VarChar(100)
+  sourceVerification  String                @db.VarChar(255)
+  lastVerifiedAt      DateTime              @default(now())
+  isActive            Boolean               @default(true)
+  createdAt           DateTime              @default(now())
+  updatedAt           DateTime              @updatedAt
+
+  @@index([serviceType])
+  @@index([city])
+  @@map("emergency_resources")
+}
+
+// ==========================================
+// 9.16 APPOINTMENTS
+// ==========================================
+
+model Appointment {
+  id                  String            @id @default(uuid())
+  userId              String
+  professionalId      String
+  scheduledAt         DateTime
+  mode                AppointmentMode   @default(IN_PERSON)
+  status              AppointmentStatus @default(PENDING)
+  notes               String?           @db.Text
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+
+  user                User              @relation("UserAppointments", fields: [userId], references: [id], onDelete: Cascade)
+  professional        Professional      @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([professionalId])
+  @@index([scheduledAt])
+  @@map("appointments")
+}
+
+// ==========================================
+// 9.17 & 9.18 AI CONVERSATIONS & MESSAGES
+// ==========================================
+
+model Conversation {
+  id                  String            @id @default(uuid())
+  userId              String?
+  title               String
+  language            String            @default("ar") @db.VarChar(10)
+  deletedAt           DateTime?
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+
+  user                User?             @relation(fields: [userId], references: [id], onDelete: SetNull)
+  messages            Message[]
+
+  @@index([userId])
+  @@map("conversations")
+}
+
+model Message {
+  id                  String            @id @default(uuid())
+  conversationId      String
+  content             String            @db.Text
+  senderType          MessageSender     @default(USER)
+  isDangerAlert       Boolean           @default(false)
+  legalReferences     Json?
+  createdAt           DateTime          @default(now())
+
+  conversation        Conversation      @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+  @@map("messages")
+}
+
+// ==========================================
+// 9.19 LEGAL RESOURCES
+// ==========================================
+
+model LegalResource {
+  id                  String            @id @default(uuid())
+  title               String
+  description         String            @db.Text
+  legalReference      String            @db.VarChar(255)
+  officialSource      String            @db.VarChar(255)
+  category            LegalCategory
+  language            String            @default("ar") @db.VarChar(10)
+  publishedAt         DateTime?
+  lastVerifiedAt      DateTime          @default(now())
+  isActive            Boolean           @default(true)
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+
+  @@index([category])
+  @@index([language])
+  @@map("legal_resources")
+}
+
+// ==========================================
+// 9.20 & 9.21 CONSENT & LOI 09-08 HISTORY
+// ==========================================
+
+model Consent {
+  id                  String            @id @default(uuid())
+  userId              String
+  consentType         ConsentType
+  isGranted           Boolean           @default(true)
+  policyVersion       String            @default("v2.0") @db.VarChar(20)
+  ipAddress           String?           @db.VarChar(45)
+  grantedAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+
+  user                User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  history             ConsentHistory[]
+  analysisResults     AnalysisResult[]
+
+  @@unique([userId, consentType])
+  @@index([userId])
+  @@map("consents")
+}
+
+model ConsentHistory {
+  id                  String            @id @default(uuid())
+  consentId           String
+  oldStatus           Boolean?
+  newStatus           Boolean
+  policyVersion       String            @db.VarChar(20)
+  reason              String?           @db.VarChar(255)
+  changedAt           DateTime          @default(now())
+
+  consent             Consent           @relation(fields: [consentId], references: [id], onDelete: Cascade)
+
+  @@index([consentId])
+  @@map("consent_history")
+}
+
+// ==========================================
+// 9.22 DISCREET NOTIFICATIONS
+// ==========================================
+
+model Notification {
+  id                  String            @id @default(uuid())
+  userId              String
+  type                NotificationType
+  neutralContent      String            @db.Text
+  channel             NotificationChannel @default(IN_APP)
+  isRead              Boolean           @default(false)
+  readAt              DateTime?
+  createdAt           DateTime          @default(now())
+
+  user                User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([isRead])
+  @@map("notifications")
+}
+
+// ==========================================
+// 9.23 AUDIT LOGS & 9.24 REPORTS
+// ==========================================
+
+model AuditLog {
+  id                  String            @id @default(uuid())
+  actorId             String?
+  action              String            @db.VarChar(100)
+  entityType          String            @db.VarChar(100)
+  entityId            String?           @db.VarChar(100)
+  result              LogResult         @default(SUCCESS)
+  metadata            Json?
+  ipAddress           String?           @db.VarChar(45)
+  createdAt           DateTime          @default(now())
+
+  actor               User?             @relation("AuditActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([actorId])
+  @@index([entityType])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+model Report {
+  id                  String            @id @default(uuid())
+  userId              String?
+  reportType          ReportType
+  description         String            @db.Text
+  status              ReportStatus      @default(PENDING)
+  reviewedById        String?
+  adminNotes          String?           @db.Text
+  resolvedAt          DateTime?
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+
+  author              User?             @relation("ReportAuthor", fields: [userId], references: [id], onDelete: SetNull)
+  reviewedBy          User?             @relation("ReportReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([status])
+  @@index([reviewedById])
+  @@map("reports")
+}
+
+// ==========================================
+// 9.25 SITUATION ANALYSIS RESULTS
+// ==========================================
+
+model AnalysisResult {
+  id                  String            @id @default(uuid())
+  userId              String
+  consentId           String
+  analysisContent     Json
+  expiresAt           DateTime?
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+
+  user                User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  consent             Consent           @relation(fields: [consentId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([consentId])
+  @@map("analysis_results")
+}
+
+// ==========================================
+// EXISTING SANAD INTERACTION LAYER (PRESERVED)
+// ==========================================
+
+model AiInteraction {
+  id                  String            @id @default(uuid())
+  userId              String?
+  provider            String            @default("gemini")
+  model               String
+  prompt              String            @db.Text
+  response            String?           @db.Text
+  status              InteractionStatus @default(PENDING)
+  errorMessage        String?           @db.Text
+  tokensUsed          Int?
+  createdAt           DateTime          @default(now())
+
+  user                User?             @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@map("ai_interactions")
+}

@@ -1,0 +1,30 @@
+services:
+  sanad-mysql:
+    image: mysql:8.0
+    container_name: sanad_mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-root_sanad_secret}
+      MYSQL_DATABASE: ${DB_NAME:-sanad_db}
+      MYSQL_USER: ${DB_USER:-sanad_app}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-sanad_secure_pass_2026}
+    ports:
+      - "${DB_PORT:-3308}:3306"
+    volumes:
+      - sanad_mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p$${MYSQL_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - sanad_network
+
+volumes:
+  sanad_mysql_data:
+    driver: local
+
+networks:
+  sanad_network:
+    driver: bridge
