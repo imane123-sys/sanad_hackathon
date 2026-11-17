@@ -22,8 +22,10 @@ async function request<T>(
       ? localStorage.getItem('sanad_access_token')
       : null;
 
+  const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
+
   const headers: HeadersInit = {
-    'Content-Type': 'application/json',
+    ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
     ...(options.headers || {}),
   };
@@ -481,8 +483,9 @@ export const api = {
         timestamp: string;
       }>('/user/dashboard', { method: 'GET' }),
 
-    getEvidences: () =>
-      request<
+    getEvidences: (folderId?: string) => {
+      const q = folderId ? `?folderId=${encodeURIComponent(folderId)}` : '';
+      return request<
         Array<{
           id: string;
           fileName: string;
@@ -495,8 +498,28 @@ export const api = {
           createdAt: string;
           folder?: { id: string; name: string } | null;
           _count?: { accessLogs: number; sharePermissions: number };
+          sharePermissions?: Array<{
+            id: string;
+            permission: string;
+            validUntil: string;
+            recipient: {
+              id: string;
+              firstName: string | null;
+              lastName: string | null;
+              fullName: string | null;
+              email: string;
+              role: string;
+            };
+          }>;
         }>
-      >('/user/evidences', { method: 'GET' }),
+      >(`/user/evidences${q}`, { method: 'GET' });
+    },
+
+    uploadEvidence: (formData: FormData) =>
+      request<any>('/user/evidences/upload', {
+        method: 'POST',
+        body: formData,
+      }),
 
     createEvidence: (dto: {
       fileName: string;
@@ -512,10 +535,208 @@ export const api = {
         body: JSON.stringify(dto),
       }),
 
+    getEvidenceById: (id: string) =>
+      request<any>(`/user/evidences/${id}`, { method: 'GET' }),
+
+    verifyEvidence: (id: string) =>
+      request<{
+        verified: boolean;
+        expectedHash: string;
+        actualHash: string;
+        checkedAt: string;
+      }>(`/user/evidences/${id}/verify`, { method: 'GET' }),
+
+    getEvidenceLogs: (id: string) =>
+      request<
+        Array<{
+          id: string;
+          evidenceId: string;
+          userId: string;
+          action: string;
+          ipAddress: string | null;
+          result: string;
+          metadata: any;
+          createdAt: string;
+          user: {
+            id: string;
+            firstName: string | null;
+            lastName: string | null;
+            fullName: string | null;
+            email: string;
+            role: string;
+          };
+        }>
+      >(`/user/evidences/${id}/logs`, { method: 'GET' }),
+
+    createEvidenceShare: (
+      id: string,
+      dto: {
+        recipientId?: string;
+        recipientEmail?: string;
+        permission?: 'READ_ONLY' | 'DOWNLOAD';
+        validDays?: number;
+      },
+    ) =>
+      request<any>(`/user/evidences/${id}/share`, {
+        method: 'POST',
+        body: JSON.stringify(dto),
+      }),
+
+    getEvidenceShares: (id: string) =>
+      request<
+        Array<{
+          id: string;
+          evidenceId: string;
+          recipientId: string;
+          permission: string;
+          status: string;
+          validFrom: string;
+          validUntil: string;
+          revokedAt: string | null;
+          recipient: {
+            id: string;
+            firstName: string | null;
+            lastName: string | null;
+            fullName: string | null;
+            email: string;
+            role: string;
+          };
+        }>
+      >(`/user/evidences/${id}/shares`, { method: 'GET' }),
+
+    revokeEvidenceShare: (shareId: string) =>
+      request<any>(`/user/evidences/shares/${shareId}/revoke`, {
+        method: 'PATCH',
+      }),
+
+    getSharedWithMe: () =>
+      request<
+        Array<{
+          shareId: string;
+          permission: string;
+          status: string;
+          validFrom: string;
+          validUntil: string;
+          evidence: {
+            id: string;
+            fileName: string;
+            fileUrl: string;
+            mimeType: string;
+            size: number;
+            sha256: string;
+            description: string | null;
+            createdAt: string;
+            user?: {
+              id: string;
+              firstName: string | null;
+              lastName: string | null;
+              email: string;
+            };
+            folder?: { id: string; name: string } | null;
+          };
+        }>
+      >('/user/evidences/shared/with-me', { method: 'GET' }),
+
     deleteEvidence: (id: string) =>
       request<{ success: boolean; message: string }>(`/user/evidences/${id}`, {
         method: 'DELETE',
       }),
+
+    getEvidenceFolders: () =>
+      request<
+        Array<{
+          id: string;
+          userId: string;
+          name: string;
+          description: string | null;
+          createdAt: string;
+          _count?: { evidences: number };
+        }>
+      >('/user/evidence-folders', { method: 'GET' }),
+
+    createEvidenceFolder: (dto: { name: string; description?: string }) =>
+      request<any>('/user/evidence-folders', {
+        method: 'POST',
+        body: JSON.stringify(dto),
+      }),
+
+    deleteEvidenceFolder: (id: string) =>
+      request<{ success: boolean; id: string }>(`/user/evidence-folders/${id}`, {
+        method: 'DELETE',
+      }),
+
+    assignEvidenceFolder: (evidenceId: string, folderId: string | null) =>
+      request<any>(`/user/evidences/${evidenceId}/folder`, {
+        method: 'PATCH',
+        body: JSON.stringify({ folderId }),
+      }),
+
+    getEvidenceDownloadUrl: (id: string) =>
+      `${API_BASE_URL}/user/evidences/${id}/download`,
+
+    getEvidenceViewUrl: (id: string) =>
+      `${API_BASE_URL}/user/evidences/${id}/view`,
+
+    downloadEvidenceFile: async (id: string, fallbackFileName = 'evidence') => {
+      const token =
+        typeof window !== 'undefined'
+          ? localStorage.getItem('sanad_access_token')
+          : null;
+      const res = await fetch(`${API_BASE_URL}/user/evidences/${id}/download`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) {
+        const errorText = await res.text();
+        let msg = 'Erreur lors du téléchargement';
+        try {
+          const parsed = JSON.parse(errorText);
+          msg = parsed.message || msg;
+        } catch {}
+        throw new Error(msg);
+      }
+      const blob = await res.blob();
+      const disposition = res.headers.get('content-disposition');
+      let filename = fallbackFileName;
+      if (disposition && disposition.includes('filename=')) {
+        const match = disposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
+        if (match && match[1]) {
+          filename = match[1].replace(/['"]/g, '');
+        }
+      }
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => window.URL.revokeObjectURL(url), 2000);
+    },
+
+    viewEvidenceBlobUrl: async (
+      id: string,
+    ): Promise<{ blobUrl: string; contentType: string }> => {
+      const token =
+        typeof window !== 'undefined'
+          ? localStorage.getItem('sanad_access_token')
+          : null;
+      const res = await fetch(`${API_BASE_URL}/user/evidences/${id}/view`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) {
+        const errorText = await res.text();
+        let msg = 'Erreur lors de la consultation du document';
+        try {
+          const parsed = JSON.parse(errorText);
+          msg = parsed.message || msg;
+        } catch {}
+        throw new Error(msg);
+      }
+      const contentType = res.headers.get('content-type') || 'application/octet-stream';
+      const blob = await res.blob();
+      const blobUrl = window.URL.createObjectURL(blob);
+      return { blobUrl, contentType };
+    },
 
     getAssistanceRequests: () =>
       request<
@@ -592,10 +813,34 @@ export const api = {
         }>
       >('/user/analysis', { method: 'GET' }),
 
-    createAnalysis: (dto: { analysisContent: any }) =>
+    evaluateSituation: (dto: {
+      description: string;
+      violenceTypes?: string[];
+      cohabitationStatus?: string;
+      hasChildren?: boolean;
+      dangerUrgency?: string;
+      hasMedicalCertificate?: boolean;
+      hasEvidence?: boolean;
+      language?: string;
+    }) =>
+      request<any>('/user/analysis/evaluate', {
+        method: 'POST',
+        body: JSON.stringify(dto),
+      }),
+
+    createAnalysis: (dto: {
+      analysisContent: any;
+      consentGranted?: boolean;
+      policyVersion?: string;
+    }) =>
       request<any>('/user/analysis', {
         method: 'POST',
         body: JSON.stringify(dto),
+      }),
+
+    deleteAnalysis: (id: string) =>
+      request<{ success: boolean; id: string }>(`/user/analysis/${id}`, {
+        method: 'DELETE',
       }),
 
     getResources: (params?: { city?: string; category?: string; query?: string }) => {

@@ -22,6 +22,8 @@ vi.mock('../lib/api', () => ({
     user: {
       getDashboard: vi.fn(),
       getEvidences: vi.fn(),
+      getEvidenceFolders: vi.fn(),
+      getSharedWithMe: vi.fn(),
       createEvidence: vi.fn(),
       deleteEvidence: vi.fn(),
       getAssistanceRequests: vi.fn(),
@@ -192,6 +194,8 @@ describe('SANAD User Dashboard - Frontend', () => {
 
     vi.mocked(api.user.getDashboard).mockResolvedValue(mockDashboardData);
     vi.mocked(api.user.getEvidences).mockResolvedValue(mockDashboardData.recentEvidences);
+    vi.mocked(api.user.getEvidenceFolders).mockResolvedValue([]);
+    vi.mocked(api.user.getSharedWithMe).mockResolvedValue([]);
     vi.mocked(api.user.getAssistanceRequests).mockResolvedValue(mockDashboardData.recentRequests);
     vi.mocked(api.user.getNotifications).mockResolvedValue(mockDashboardData.recentNotifications);
     vi.mocked(api.user.getResources).mockResolvedValue(mockResources);

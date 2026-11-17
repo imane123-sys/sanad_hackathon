@@ -9,6 +9,7 @@ import { ProtectedLayout } from '@/components/protected-layout';
 import { RoleSidebar } from '@/components/role-sidebar';
 import { QuickExitButton } from '@/components/quick-exit-button';
 import { EmergencyModal } from '@/components/emergency-modal';
+import { EvidenceVault } from '@/components/evidence-vault';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -70,13 +71,6 @@ export default function UserDashboardPage() {
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [emergencyModalOpen, setEmergencyModalOpen] = useState<boolean>(false);
   const [copiedHash, setCopiedHash] = useState<string | null>(null);
-
-  // New Evidence Form State
-  const [evidenceName, setEvidenceName] = useState('');
-  const [evidenceType, setEvidenceType] = useState('photo');
-  const [evidenceUrl, setEvidenceUrl] = useState('');
-  const [evidenceDesc, setEvidenceDesc] = useState('');
-  const [isUploadingEvidence, setIsUploadingEvidence] = useState(false);
 
   // New Assistance Request Form State
   const [reqType, setReqType] = useState('LEGAL');
@@ -148,101 +142,6 @@ export default function UserDashboardPage() {
   }, [loadUserData]);
 
   // Client-side SHA-256 helper for tamper-evident hash
-  const generateSha256 = async (content: string): Promise<string> => {
-    try {
-      if (typeof window !== 'undefined' && window.crypto?.subtle) {
-        const encoder = new TextEncoder();
-        const data = encoder.encode(content);
-        const hashBuffer = await window.crypto.subtle.digest('SHA-256', data);
-        const hashArray = Array.from(new Uint8Array(hashBuffer));
-        return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
-      }
-    } catch (e) {
-      // Fallback pseudo-sha
-    }
-    const pseudoArray = new Uint8Array(32);
-    crypto.getRandomValues(pseudoArray);
-    return Array.from(pseudoArray).map((b) => b.toString(16).padStart(2, '0')).join('');
-  };
-
-  // Submit Evidence to Vault
-  const handleCreateEvidence = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!evidenceName.trim()) return;
-
-    try {
-      setIsUploadingEvidence(true);
-      setError(null);
-
-      const computedSha256 = await generateSha256(
-        `${evidenceName}-${evidenceType}-${Date.now()}-${evidenceUrl || 'local_file'}`,
-      );
-
-      const mimeTypeMap: Record<string, string> = {
-        photo: 'image/jpeg',
-        chat: 'image/png',
-        audio: 'audio/mp4',
-        doc: 'application/pdf',
-      };
-
-      await api.user.createEvidence({
-        fileName: evidenceName.trim(),
-        fileUrl: evidenceUrl.trim() || `https://vault.sanad.ma/secure/${Date.now()}_file`,
-        mimeType: mimeTypeMap[evidenceType] || 'application/octet-stream',
-        size: Math.floor(Math.random() * 4500000) + 120000,
-        sha256: computedSha256,
-        description: evidenceDesc.trim() || undefined,
-      });
-
-      setSuccessMsg(
-        locale === 'ar'
-          ? 'تم حفظ وتوثيق الدليل في خزانة الأدلة المشفرة بنجاح.'
-          : 'Élément scellé et enregistré dans le coffre-fort avec succès.',
-      );
-      setEvidenceName('');
-      setEvidenceUrl('');
-      setEvidenceDesc('');
-
-      // Refresh list
-      const updatedEvs = await api.user.getEvidences();
-      setEvidences(updatedEvs);
-      const updatedDash = await api.user.getDashboard();
-      setDashboardData(updatedDash);
-    } catch (err: any) {
-      setError(err?.message || (locale === 'ar' ? 'فشل حفظ الدليل' : 'Échec de l’enregistrement de la preuve'));
-    } finally {
-      setIsUploadingEvidence(false);
-    }
-  };
-
-  // Delete Evidence
-  const handleDeleteEvidence = async (id: string) => {
-    if (
-      !window.confirm(
-        locale === 'ar'
-          ? 'هل أنتِ متأكدة من رغبتكِ في حذف هذا الدليل نهائياً من الخزانة؟'
-          : 'Confirmez-vous la suppression définitive de cet élément de preuve ?',
-      )
-    ) {
-      return;
-    }
-
-    try {
-      setError(null);
-      await api.user.deleteEvidence(id);
-      setSuccessMsg(
-        locale === 'ar'
-          ? 'تم حذف الدليل من الخزانة بأمان تام.'
-          : 'Élément de preuve supprimé en toute sécurité.',
-      );
-      setEvidences((prev) => prev.filter((item) => item.id !== id));
-      const updatedDash = await api.user.getDashboard();
-      setDashboardData(updatedDash);
-    } catch (err: any) {
-      setError(err?.message || (locale === 'ar' ? 'فشل حذف الدليل' : 'Impossible de supprimer la preuve'));
-    }
-  };
-
   // Submit Assistance Request
   const handleCreateRequest = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1086,165 +985,7 @@ export default function UserDashboardPage() {
           {/* TAB 3: EVIDENCE VAULT (خزانة الأدلة) */}
           {/* ======================================================== */}
           {activeTab === 'evidence' && (
-            <div className="space-y-6">
-              {/* Evidence Vault Header with SHA-256 Assurance */}
-              <div className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-                <div className="space-y-1">
-                  <h2 className="text-lg font-black text-slate-900 dark:text-white flex items-center gap-2">
-                    <FolderLock className="h-5 w-5 text-[#5C1F75]" />
-                    <span>{t('userDashboard.vault.title')}</span>
-                  </h2>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">
-                    {t('userDashboard.vault.subtitle')}
-                  </p>
-                </div>
-                <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-purple-50 text-[#5C1F75] border border-purple-200 text-xs font-bold">
-                  <Fingerprint className="h-4 w-4" />
-                  <span>{t('userDashboard.vault.badgeIntegrity')}</span>
-                </div>
-              </div>
-
-              {/* Upload New Evidence Form */}
-              <Card className="border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
-                <CardHeader>
-                  <CardTitle className="text-sm font-bold flex items-center gap-2">
-                    <Plus className="h-4 w-4 text-[#5C1F75]" />
-                    <span>{t('userDashboard.vault.uploadTitle')}</span>
-                  </CardTitle>
-                  <CardDescription className="text-xs">
-                    {t('userDashboard.vault.hashNotice')}
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <form onSubmit={handleCreateEvidence} className="space-y-4">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div className="space-y-1.5">
-                        <Label className="text-xs font-bold">{t('userDashboard.vault.fileName')}</Label>
-                        <Input
-                          value={evidenceName}
-                          onChange={(e) => setEvidenceName(e.target.value)}
-                          placeholder={t('userDashboard.vault.fileNamePlaceholder')}
-                          required
-                          className="text-xs"
-                        />
-                      </div>
-                      <div className="space-y-1.5">
-                        <Label className="text-xs font-bold">{t('userDashboard.vault.fileType')}</Label>
-                        <select
-                          value={evidenceType}
-                          onChange={(e) => setEvidenceType(e.target.value)}
-                          className="w-full rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-2 text-xs font-medium"
-                        >
-                          <option value="photo">{t('userDashboard.vault.photo')}</option>
-                          <option value="chat">{t('userDashboard.vault.chat')}</option>
-                          <option value="audio">{t('userDashboard.vault.audio')}</option>
-                          <option value="doc">{t('userDashboard.vault.doc')}</option>
-                        </select>
-                      </div>
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <Label className="text-xs font-bold">{t('userDashboard.vault.description')}</Label>
-                      <Input
-                        value={evidenceDesc}
-                        onChange={(e) => setEvidenceDesc(e.target.value)}
-                        placeholder={
-                          locale === 'ar'
-                            ? 'سياق الواقعة، التاريخ، المكان، وأي تفاصيل داعمة لقضيتك...'
-                            : 'Précisez le contexte, la date, le lieu ou les circonstances...'
-                        }
-                        className="text-xs"
-                      />
-                    </div>
-
-                    <div className="flex justify-end pt-2">
-                      <Button
-                        type="submit"
-                        disabled={isUploadingEvidence || !evidenceName.trim()}
-                        className="bg-[#5C1F75] hover:bg-[#48185c] text-white text-xs font-bold rounded-xl px-5"
-                      >
-                        {isUploadingEvidence ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <>
-                            <Fingerprint className="h-4 w-4 me-1.5" />
-                            <span>{t('userDashboard.vault.uploadButton')}</span>
-                          </>
-                        )}
-                      </Button>
-                    </div>
-                  </form>
-                </CardContent>
-              </Card>
-
-              {/* List of Stored Evidences with Verification Status */}
-              <div className="space-y-3">
-                <h3 className="font-bold text-sm text-slate-800 dark:text-slate-200">
-                  {locale === 'ar'
-                    ? `الأدلة المحفوظة بالخزانة (${evidences.length})`
-                    : `Pièces archivées au coffre-fort (${evidences.length})`}
-                </h3>
-
-                {evidences.length === 0 ? (
-                  <Card className="border-dashed p-8 text-center text-slate-400">
-                    <FolderLock className="h-10 w-10 mx-auto mb-2 opacity-50" />
-                    <p className="text-xs">{t('userDashboard.vault.empty')}</p>
-                  </Card>
-                ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {evidences.map((ev) => (
-                      <Card
-                        key={ev.id}
-                        className="border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs"
-                      >
-                        <CardHeader className="p-4 pb-2 flex flex-row items-start justify-between">
-                          <div className="min-w-0 space-y-1">
-                            <CardTitle className="text-sm font-bold truncate text-slate-900 dark:text-white">
-                              {ev.fileName}
-                            </CardTitle>
-                            <CardDescription className="text-[11px] truncate">
-                              {ev.description || (locale === 'ar' ? 'دليل موثق' : 'Preuve enregistrée')}
-                            </CardDescription>
-                          </div>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleDeleteEvidence(ev.id)}
-                            className="text-rose-600 hover:bg-rose-50 p-1.5 h-auto rounded-lg"
-                            title={locale === 'ar' ? 'حذف' : 'Supprimer'}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </CardHeader>
-                        <CardContent className="p-4 pt-1 space-y-2.5">
-                          <div className="rounded-lg bg-slate-50 dark:bg-slate-800/80 p-2 font-mono text-[10px] text-slate-600 dark:text-slate-300 flex items-center justify-between gap-2 border border-slate-100 dark:border-slate-800">
-                            <span className="truncate">SHA-256: {ev.sha256}</span>
-                            <button
-                              onClick={() => copyToClipboard(ev.sha256)}
-                              className="text-[#5C1F75] hover:underline font-bold shrink-0 flex items-center gap-1"
-                            >
-                              {copiedHash === ev.sha256 ? (
-                                <Check className="h-3.5 w-3.5 text-emerald-600" />
-                              ) : (
-                                <Copy className="h-3.5 w-3.5" />
-                              )}
-                            </button>
-                          </div>
-
-                          <div className="flex items-center justify-between text-[11px] text-slate-400">
-                            <span>{new Date(ev.createdAt).toLocaleDateString()}</span>
-                            <span className="font-medium text-emerald-600 flex items-center gap-1">
-                              <ShieldCheck className="h-3.5 w-3.5" />
-                              {locale === 'ar' ? 'سلامة رقمية مؤكدة' : 'Intégrité certifiée'}
-                            </span>
-                          </div>
-                        </CardContent>
-                      </Card>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
+            <EvidenceVault initialEvidences={evidences} onStatsChange={loadUserData} />
           )}
 
           {/* ======================================================== */}
